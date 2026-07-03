@@ -1,0 +1,24 @@
+# Thème "Industrial Premium" forcé — ce fichier a la priorité sur les
+# préférences système (mode sombre) du navigateur du visiteur.
+# Contrairement au CSS injecté dans app.py (qui ne pouvait surcharger
+# que le texte), ce mécanisme natif de Streamlit contrôle aussi le
+# fond des conteneurs, colonnes, cartes et zones d'upload.
+ 
+base = "light"
+ 
+# Couleur d'accent (boutons actifs, sliders, éléments interactifs) —
+# le bleu profond du thème Y-NEXUS
+primaryColor = "#1B3A5C"
+ 
+# Fond principal de l'application
+backgroundColor = "#F7F8FA"
+ 
+# Fond des éléments secondaires : sidebar, cartes, conteneurs, zones d'upload
+secondaryBackgroundColor = "#FFFFFF"
+ 
+# Couleur du texte — anthracite, cohérent avec le thème
+textColor = "#2B2F36"
+ 
+# Police de base
+font = "sans serif"
+ 
