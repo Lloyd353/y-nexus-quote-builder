@@ -1,3 +1,4 @@
+Gestion brouillon · PY
 """
 Gestion du Brouillon — Export / Import JSON
 ==============================================
@@ -53,7 +54,14 @@ def construire_brouillon_dict() -> dict:
             "date": _convertir_pour_json(st.session_state.infos_date),
         },
         "devis": {
-            "lignes": st.session_state.devis_lignes,
+            # On retire le champ technique "_id_ligne" (identifiant
+            # interne utilisé par bloc2_devis.py pour la stabilité des
+            # widgets) avant export — il n'a aucune utilité pour
+            # l'utilisateur et n'a pas besoin d'être dans le brouillon.
+            "lignes": [
+                {cle: valeur for cle, valeur in ligne.items() if cle != "_id_ligne"}
+                for ligne in st.session_state.devis_lignes
+            ],
             "devise": st.session_state.devis_devise,
             "taux_tva": st.session_state.devis_taux_tva,
         },
@@ -169,4 +177,3 @@ def afficher_widget_export_import():
                         st.rerun()
                     else:
                         st.error(message)
- 
