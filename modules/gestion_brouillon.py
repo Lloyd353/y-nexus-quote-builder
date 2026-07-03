@@ -105,6 +105,13 @@ def importer_brouillon(fichier_json_bytes: bytes) -> tuple[bool, str]:
         st.session_state.devis_devise = devis.get("devise", "FCFA (XAF)")
         st.session_state.devis_taux_tva = devis.get("taux_tva", 19.25)
  
+        # IMPORTANT : on efface le tableau mis en cache du Bloc 2 (s'il
+        # existe) pour forcer sa reconstruction à partir des données
+        # fraîchement importées ci-dessus. Sans cette ligne, un import
+        # de brouillon après une première visite du Bloc 2 laisserait
+        # l'ancien tableau affiché, ignorant silencieusement l'import.
+        st.session_state.pop("df_devis_source", None)
+ 
         return True, "✅ Brouillon importé avec succès ! Vos données ont été restaurées."
  
     except (KeyError, ValueError, TypeError) as erreur:
