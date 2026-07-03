@@ -33,23 +33,43 @@ st.set_page_config(
 # ----------------------------------------------------------------------
 def injecter_theme_css():
     """
-    Applique le thème visuel demandé :
-    fond gris très clair, boutons bleu profond / anthracite.
-    Streamlit ne permet pas de tout personnaliser nativement,
-    on passe donc par un bloc <style> injecté dans la page.
+    Applique le thème visuel demandé : fond gris très clair, boutons
+    bleu profond / anthracite.
+ 
+    IMPORTANT — Correction mode sombre : Streamlit peut basculer en
+    thème sombre selon les préférences système du visiteur. Sans
+    forçage explicite, le texte (pensé pour un fond clair) devient
+    quasi invisible sur fond noir. On neutralise donc ça avec des
+    règles ciblant TOUT le texte de l'app (pas seulement h1-h3), et
+    en fixant explicitement les couleurs de fond des zones de saisie.
     """
     st.markdown(
         """
         <style>
-        /* Fond général de l'espace de travail */
+        /* Fond général de l'espace de travail — fixe, ignore le mode sombre système */
         .stApp {
             background-color: #F7F8FA;
         }
  
-        /* Boutons principaux : bleu profond */
+        /* Tout le texte de l'app en anthracite, quel que soit le thème du visiteur */
+        .stApp, .stApp p, .stApp span, .stApp label,
+        h1, h2, h3, h4, h5, h6,
+        .stMarkdown, .stCaption, .stText {
+            color: #2B2F36 !important;
+        }
+ 
+        /* Champs de saisie : fond blanc explicite + texte lisible,
+           pour éviter qu'ils héritent d'un fond sombre système */
+        .stTextInput input, .stNumberInput input, .stDateInput input,
+        .stSelectbox div[data-baseweb="select"], .stTextArea textarea {
+            background-color: #FFFFFF !important;
+            color: #2B2F36 !important;
+        }
+ 
+        /* Boutons principaux : bleu profond (texte toujours blanc, lisible) */
         .stButton > button {
             background-color: #1B3A5C;
-            color: #FFFFFF;
+            color: #FFFFFF !important;
             border-radius: 6px;
             border: none;
             font-weight: 600;
@@ -58,12 +78,10 @@ def injecter_theme_css():
         }
         .stButton > button:hover {
             background-color: #142C47;
-            color: #FFFFFF;
+            color: #FFFFFF !important;
         }
- 
-        /* Titres en anthracite */
-        h1, h2, h3 {
-            color: #2B2F36;
+        .stButton > button p {
+            color: #FFFFFF !important;
         }
  
         /* Bandeau de progression des blocs */
