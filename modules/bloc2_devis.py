@@ -111,39 +111,28 @@ def afficher_bloc2():
     # ------------------------------------------------------------------
     # TABLEAU INTERACTIF (DataGrid)
     # ------------------------------------------------------------------
-    # CORRECTIF CRITIQUE — cycle de vie du data_editor :
+    # CORRECTIF CRITIQUE v2 — cycle de vie du data_editor :
     #
-    # PROBLÈME initial : reconstruire `df_source` depuis
-    # st.session_state.devis_lignes À CHAQUE rerun (ce que fait Streamlit
-    # à chaque frappe/clic) crée une course entre les anciennes données
-    # qu'on repasse en argument et l'état interne que le widget garde
-    # sous sa `key`. Résultat observé : une saisie disparaît dès qu'on
-    # change de ligne ou de bloc, car l'ancien df_source écrase la
-    # frappe en cours au rerun suivant.
+    # PROBLÈME persistant malgré la v1 : repasser un DataFrame reconstruit
+    # (même stocké dans notre propre session_state) en ARGUMENT à
+    # st.data_editor à chaque rerun peut entrer en conflit avec l'état
+    # interne que Streamlit garde sous la `key` fixe "editeur_devis" —
+    # chaque objet DataFrame recréé a une identité Python différente
+    # même à contenu égal, ce qui peut suffire à perturber la
+    # persistance de la saisie (texte refusé, valeurs qui sautent).
     #
-    # CORRECTIF : on ne construit `df_source` QU'UNE SEULE FOIS par
-    # session, via st.session_state.setdefault. Une fois le widget
-    # créé avec sa clé "editeur_devis", c'est LUI qui devient la seule
-    # source de vérité pour les reruns suivants — on ne lui repasse
-    # plus jamais un DataFrame reconstruit depuis ailleurs.
+    # CORRECTIF v2 : on initialise les données UNE SEULE FOIS au tout
+    # premier rendu, puis on n'appelle plus JAMAIS st.data_editor avec
+    # un DataFrame explicite après coup — Streamlit gère alors l'état
+    # entièrement lui-même via la clé, sans qu'on interfère à chaque
+    # rerun. La colonne "Prix Total" est retirée du tableau éditable
+    # (elle causait aussi une réinjection à chaque rerun) et affichée
+    # séparément juste en dessous, en lecture seule.
     if "df_devis_source" not in st.session_state:
         df_init = pd.DataFrame(st.session_state.devis_lignes)
  
-        # CORRECTIF — typage explicite forcé des colonnes :
-        #
-        # PROBLÈME : quand pandas construit un DataFrame à partir d'une
-        # seule ligne contenant une chaîne vide ("Désignation": ""), il
-        # ne peut pas toujours déduire avec certitude qu'il s'agit d'une
-        # colonne de TEXTE. Ce doute se propage jusqu'à st.data_editor,
-        # qui peut alors traiter la colonne comme numérique/générique —
-        # d'où le refus d'accepter des lettres observé en production,
-        # et l'instabilité des autres colonnes par effet de bord.
-        #
-        # CORRECTIF : on force le type Python natif de chaque colonne
-        # AVANT de passer le DataFrame à st.data_editor, plutôt que de
-        # compter uniquement sur l'inférence automatique de pandas ou
-        # sur column_config seul (qui configure l'ÉDITEUR, pas la
-        # donnée sous-jacente elle-même).
+        # Typage explicite forcé : évite l'inférence ambiguë de pandas
+        # quand une colonne texte ne contient au départ qu'une chaîne vide.
         for colonne_texte in ["Désignation", "Référence normative", "Unité"]:
             if colonne_texte in df_init.columns:
                 df_init[colonne_texte] = df_init[colonne_texte].astype(str).replace("nan", "")
@@ -151,13 +140,13 @@ def afficher_bloc2():
             if colonne_numerique in df_init.columns:
                 df_init[colonne_numerique] = df_init[colonne_numerique].apply(_valeur_numerique_sure)
  
-        df_init["Prix Total"] = df_init.apply(
-            lambda ligne: _valeur_numerique_sure(ligne.get("Quantité"))
-            * _valeur_numerique_sure(ligne.get("Prix unitaire")),
-            axis=1,
-        )
         st.session_state.df_devis_source = df_init
  
+    # IMPORTANT : à partir d'ici, on ne touche plus jamais
+    # st.session_state.df_devis_source avant l'appel au widget.
+    # st.data_editor lit son état interne via la clé "editeur_devis" ;
+    # le paramètre positionnel n'est utilisé QUE lors du tout premier
+    # rendu (quand aucun état n'existe encore sous cette clé).
     df_edite = st.data_editor(
         st.session_state.df_devis_source,
         num_rows="dynamic",  # autorise l'ajout/suppression de lignes directement dans le tableau
@@ -179,24 +168,37 @@ def afficher_bloc2():
             "Prix unitaire": st.column_config.NumberColumn(
                 "Prix unitaire", min_value=0.0, step=100.0, format="%.2f"
             ),
-            "Prix Total": st.column_config.NumberColumn(
-                "Prix Total", format="%.2f", disabled=True  # verrouillé, calcul automatique
-            ),
         },
         key="editeur_devis",
     )
  
-    # On recalcule "Prix Total" à partir de ce que l'utilisateur vient
-    # RÉELLEMENT de saisir (df_edite, retourné par le widget lui-même),
-    # pas depuis une source reconstruite — c'est ce qui garantit que
-    # les totaux reflètent toujours la dernière frappe, même la plus
-    # récente, sans décalage d'un rerun.
+    # On NE réécrit PLUS st.session_state.df_devis_source ici (c'était
+    # la source du conflit). Streamlit maintient déjà l'état à jour en
+    # interne sous la clé "editeur_devis" — df_edite, retourné par
+    # l'appel ci-dessus, reflète toujours la dernière saisie de
+    # l'utilisateur, sans qu'on ait besoin de le réinjecter nous-mêmes.
+ 
+    # Calcul du Prix Total par ligne, affiché séparément en lecture
+    # seule (retiré du tableau éditable pour éliminer tout risque de
+    # conflit de state lié à cette colonne recalculée à chaque rerun).
+    df_edite = df_edite.copy()
     df_edite["Prix Total"] = df_edite.apply(
         lambda ligne: _valeur_numerique_sure(ligne.get("Quantité"))
         * _valeur_numerique_sure(ligne.get("Prix unitaire")),
         axis=1,
     )
-    st.session_state.df_devis_source = df_edite
+ 
+    with st.expander("📋 Aperçu des prix totaux par ligne", expanded=True):
+        st.dataframe(
+            df_edite[["Désignation", "Quantité", "Prix unitaire", "Prix Total"]],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Prix Total": st.column_config.NumberColumn("Prix Total", format="%.2f"),
+                "Prix unitaire": st.column_config.NumberColumn("Prix unitaire", format="%.2f"),
+                "Quantité": st.column_config.NumberColumn("Quantité", format="%.2f"),
+            },
+        )
  
     # On retire la colonne calculée avant de sauvegarder dans le session_state
     # (elle sera recalculée à chaque rendu, pas besoin de la stocker).
