@@ -84,6 +84,32 @@ def injecter_theme_css():
             color: #FFFFFF !important;
         }
  
+        /* Boutons de lien (st.link_button) — ex: bouton Selar de la sidebar.
+           Composant Streamlit DISTINCT de st.button, avec sa propre classe
+           CSS (.stLinkButton). Sans cette règle explicite, ce bouton hérite
+           du style natif Streamlit et peut afficher un texte peu lisible
+           sur le fond coloré défini dans sidebar.py. */
+        .stLinkButton > a,
+        .stLinkButton a[kind="primary"] {
+            background-color: #1B3A5C !important;
+            color: #FFFFFF !important;
+            border: none !important;
+            border-radius: 6px !important;
+            font-weight: 600 !important;
+            width: 100% !important;
+            text-align: center !important;
+            justify-content: center !important;
+        }
+        .stLinkButton > a:hover {
+            background-color: #142C47 !important;
+            color: #FFFFFF !important;
+        }
+        .stLinkButton > a p,
+        .stLinkButton > a span,
+        .stLinkButton > a div {
+            color: #FFFFFF !important;
+        }
+ 
         /* Bandeau de progression des blocs */
         .ynexus-stepper {
             display: flex;
@@ -207,4 +233,3 @@ def main():
  
 if __name__ == "__main__":
     main()
- 
