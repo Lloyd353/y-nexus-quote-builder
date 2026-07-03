@@ -1,4 +1,3 @@
-Gestion brouillon · PY
 """
 Gestion du Brouillon — Export / Import JSON
 ==============================================
