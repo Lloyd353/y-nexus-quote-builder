@@ -128,6 +128,29 @@ def afficher_bloc2():
     # plus jamais un DataFrame reconstruit depuis ailleurs.
     if "df_devis_source" not in st.session_state:
         df_init = pd.DataFrame(st.session_state.devis_lignes)
+ 
+        # CORRECTIF — typage explicite forcé des colonnes :
+        #
+        # PROBLÈME : quand pandas construit un DataFrame à partir d'une
+        # seule ligne contenant une chaîne vide ("Désignation": ""), il
+        # ne peut pas toujours déduire avec certitude qu'il s'agit d'une
+        # colonne de TEXTE. Ce doute se propage jusqu'à st.data_editor,
+        # qui peut alors traiter la colonne comme numérique/générique —
+        # d'où le refus d'accepter des lettres observé en production,
+        # et l'instabilité des autres colonnes par effet de bord.
+        #
+        # CORRECTIF : on force le type Python natif de chaque colonne
+        # AVANT de passer le DataFrame à st.data_editor, plutôt que de
+        # compter uniquement sur l'inférence automatique de pandas ou
+        # sur column_config seul (qui configure l'ÉDITEUR, pas la
+        # donnée sous-jacente elle-même).
+        for colonne_texte in ["Désignation", "Référence normative", "Unité"]:
+            if colonne_texte in df_init.columns:
+                df_init[colonne_texte] = df_init[colonne_texte].astype(str).replace("nan", "")
+        for colonne_numerique in ["Quantité", "Prix unitaire"]:
+            if colonne_numerique in df_init.columns:
+                df_init[colonne_numerique] = df_init[colonne_numerique].apply(_valeur_numerique_sure)
+ 
         df_init["Prix Total"] = df_init.apply(
             lambda ligne: _valeur_numerique_sure(ligne.get("Quantité"))
             * _valeur_numerique_sure(ligne.get("Prix unitaire")),
