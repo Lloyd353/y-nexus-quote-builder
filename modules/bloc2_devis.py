@@ -2,24 +2,44 @@
 BLOC 2 — Moteur Mathématique de Devis
 =======================================
 Rôle : c'est le cœur de l'outil. L'utilisateur construit son devis
-ligne par ligne dans un tableau interactif (st.data_editor), et
-l'application recalcule automatiquement tous les totaux.
+ligne par ligne, et l'application recalcule automatiquement tous
+les totaux.
  
-Structure de chaque ligne (dictionnaire) :
+CHOIX D'ARCHITECTURE — pourquoi pas de tableau data_editor :
+Les deux premières versions de ce module utilisaient st.data_editor
+(un vrai DataGrid). Ce composant s'est révélé instable en production
+sur cet environnement précis : certaines colonnes de texte refusaient
+la saisie de lettres, et les valeurs se réinitialisaient après un
+changement de ligne. Deux tentatives de correction ciblée n'ont pas
+résolu le problème.
+ 
+Ce module utilise donc une architecture plus simple et plus verbeuse,
+mais structurellement fiable : CHAQUE ligne de devis est une série de
+champs de saisie individuels (st.text_input, st.number_input,
+st.selectbox), chacun avec sa PROPRE clé stable et unique
+(ex: "quantite_ligne_2"). Ce sont des composants Streamlit basiques,
+avec un comportement extremement previsible et documente.
+ 
+Structure de chaque ligne (dictionnaire), INCHANGEE par rapport aux
+versions precedentes — le reste de l'application (Bloc 3, export
+JSON, PDF, Excel) n'a donc besoin d'AUCUNE modification :
     {
-        "Désignation": str,
-        "Référence normative": str,
-        "Quantité": float,
-        "Unité": str,
+        "Designation": str,
+        "Reference normative": str,
+        "Quantite": float,
+        "Unite": str,
         "Prix unitaire": float,
     }
  
-Le "Prix Total" et le "N°" ne sont PAS stockés dans les données brutes :
-ils sont recalculés à l'affichage pour garantir qu'ils sont toujours
-exacts, même si l'utilisateur modifie une quantité après coup.
+Chaque ligne possede en interne un identifiant stable unique
+("_id_ligne") qui sert de racine aux cles des widgets de cette ligne.
+Cet identifiant n'est JAMAIS reindexe (contrairement a la position
+dans la liste), ce qui garantit qu'une ligne garde le meme etat meme
+si une autre ligne, plus haut dans le tableau, est supprimee.
 """
  
-import pandas as pd
+import uuid
+ 
 import streamlit as st
  
 UNITES_DISPONIBLES = ["u", "m", "kg", "lot", "forfait"]
@@ -29,46 +49,56 @@ DEVISES_DISPONIBLES = ["FCFA (XAF)", "Euro (EUR)", "Dollar US (USD)", "Autre (pr
 def _valeur_numerique_sure(valeur, defaut: float = 0.0) -> float:
     """
     Convertit une valeur en float de façon robuste, quelle que soit
-    sa forme brute en provenance du DataGrid : None, chaîne vide "",
-    chaîne non numérique, NaN (pandas), ou déjà un nombre valide.
- 
-    C'est le point de correction central du bug "None / nan" observé
-    en production : une nouvelle ligne ajoutée au tableau est vide
-    jusqu'à saisie de l'utilisateur, et cette vacuité peut prendre
-    plusieurs formes selon le moment exact du rendu Streamlit. Un
-    simple `float(x or 0)` ne couvre pas tous ces cas — celui-ci si.
+    sa forme brute : None, chaîne vide "", chaîne non numérique, NaN,
+    ou déjà un nombre valide. Conservée depuis les versions précédentes
+    car toujours utile pour les calculs de synthèse.
     """
     if valeur is None:
         return defaut
     try:
         nombre = float(valeur)
-        # pandas peut produire NaN (Not a Number) pour une cellule vide ;
-        # float('nan') est un float VALIDE au sens Python, donc le try
-        # ci-dessus ne l'intercepte pas — on le détecte explicitement.
-        if nombre != nombre:  # une égalité fausse avec soi-même est LA signature de NaN
+        if nombre != nombre:  # détection NaN : seule valeur jamais égale à elle-même
             return defaut
         return nombre
     except (ValueError, TypeError):
-        # Chaîne vide "", texte non numérique, ou tout autre cas imprévu
         return defaut
  
  
-def _dataframe_vers_lignes(df: pd.DataFrame) -> list[dict]:
-    """Reconvertit le DataFrame édité par l'utilisateur en liste de dicts
-    propre, en filtrant les lignes totalement vides (résidu de suppression)."""
-    lignes = df.to_dict("records")
-    lignes_propres = [
-        ligne
-        for ligne in lignes
-        if str(ligne.get("Désignation", "") or "").strip() != ""
-        or _valeur_numerique_sure(ligne.get("Quantité")) != 0
-        or _valeur_numerique_sure(ligne.get("Prix unitaire")) != 0
+def _garantir_id_lignes():
+    """
+    S'assure que chaque ligne de st.session_state.devis_lignes possède
+    un identifiant stable "_id_ligne". Les brouillons importés (JSON)
+    ou les données d'une session précédente peuvent ne pas en avoir —
+    on les génère alors à la volée, une seule fois.
+    """
+    for ligne in st.session_state.devis_lignes:
+        if "_id_ligne" not in ligne:
+            ligne["_id_ligne"] = uuid.uuid4().hex[:8]
+ 
+ 
+def _ajouter_ligne():
+    """Ajoute une nouvelle ligne vide à la fin du devis."""
+    st.session_state.devis_lignes.append(
+        {
+            "_id_ligne": uuid.uuid4().hex[:8],
+            "Désignation": "",
+            "Référence normative": "",
+            "Quantité": 1.0,
+            "Unité": "u",
+            "Prix unitaire": 0.0,
+        }
+    )
+ 
+ 
+def _supprimer_ligne(id_ligne: str):
+    """Supprime la ligne correspondant à cet identifiant stable."""
+    st.session_state.devis_lignes = [
+        ligne for ligne in st.session_state.devis_lignes if ligne.get("_id_ligne") != id_ligne
     ]
-    # Toujours garder au moins une ligne, même vide, pour que le tableau
-    # ne disparaisse pas complètement si l'utilisateur efface tout.
-    return lignes_propres or [
-        {"Désignation": "", "Référence normative": "", "Quantité": 1.0, "Unité": "u", "Prix unitaire": 0.0}
-    ]
+    # On garde toujours au moins une ligne pour que le formulaire ne
+    # disparaisse jamais complètement.
+    if not st.session_state.devis_lignes:
+        _ajouter_ligne()
  
  
 def _calculer_totaux(lignes: list[dict], taux_tva: float) -> dict:
@@ -90,10 +120,12 @@ def afficher_bloc2():
         "généraux se recalculent automatiquement."
     )
  
+    _garantir_id_lignes()
+ 
     # ------------------------------------------------------------------
-    # SÉLECTEUR DE DEVISE (posé avant le tableau, discret)
+    # SÉLECTEUR DE DEVISE
     # ------------------------------------------------------------------
-    col_devise, col_tva = st.columns(2)
+    col_devise, _ = st.columns(2)
     with col_devise:
         devise_choisie = st.selectbox(
             "Devise du devis",
@@ -108,112 +140,96 @@ def afficher_bloc2():
             ) or "Autre"
         st.session_state.devis_devise = devise_choisie
  
+    st.divider()
+ 
     # ------------------------------------------------------------------
-    # TABLEAU INTERACTIF (DataGrid)
+    # EN-TÊTE DES COLONNES (purement visuel, pas de widget ici)
     # ------------------------------------------------------------------
-    # CORRECTIF CRITIQUE v2 — cycle de vie du data_editor :
-    #
-    # PROBLÈME persistant malgré la v1 : repasser un DataFrame reconstruit
-    # (même stocké dans notre propre session_state) en ARGUMENT à
-    # st.data_editor à chaque rerun peut entrer en conflit avec l'état
-    # interne que Streamlit garde sous la `key` fixe "editeur_devis" —
-    # chaque objet DataFrame recréé a une identité Python différente
-    # même à contenu égal, ce qui peut suffire à perturber la
-    # persistance de la saisie (texte refusé, valeurs qui sautent).
-    #
-    # CORRECTIF v2 : on initialise les données UNE SEULE FOIS au tout
-    # premier rendu, puis on n'appelle plus JAMAIS st.data_editor avec
-    # un DataFrame explicite après coup — Streamlit gère alors l'état
-    # entièrement lui-même via la clé, sans qu'on interfère à chaque
-    # rerun. La colonne "Prix Total" est retirée du tableau éditable
-    # (elle causait aussi une réinjection à chaque rerun) et affichée
-    # séparément juste en dessous, en lecture seule.
-    if "df_devis_source" not in st.session_state:
-        df_init = pd.DataFrame(st.session_state.devis_lignes)
- 
-        # Typage explicite forcé : évite l'inférence ambiguë de pandas
-        # quand une colonne texte ne contient au départ qu'une chaîne vide.
-        for colonne_texte in ["Désignation", "Référence normative", "Unité"]:
-            if colonne_texte in df_init.columns:
-                df_init[colonne_texte] = df_init[colonne_texte].astype(str).replace("nan", "")
-        for colonne_numerique in ["Quantité", "Prix unitaire"]:
-            if colonne_numerique in df_init.columns:
-                df_init[colonne_numerique] = df_init[colonne_numerique].apply(_valeur_numerique_sure)
- 
-        st.session_state.df_devis_source = df_init
- 
-    # IMPORTANT : à partir d'ici, on ne touche plus jamais
-    # st.session_state.df_devis_source avant l'appel au widget.
-    # st.data_editor lit son état interne via la clé "editeur_devis" ;
-    # le paramètre positionnel n'est utilisé QUE lors du tout premier
-    # rendu (quand aucun état n'existe encore sous cette clé).
-    df_edite = st.data_editor(
-        st.session_state.df_devis_source,
-        num_rows="dynamic",  # autorise l'ajout/suppression de lignes directement dans le tableau
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Désignation": st.column_config.TextColumn(
-                "Désignation", help="Nom du composant ou de l'équipement", width="large"
-            ),
-            "Référence normative": st.column_config.TextColumn(
-                "Référence normative", help="Ex : IEC 60364, IP65", width="medium"
-            ),
-            "Quantité": st.column_config.NumberColumn(
-                "Quantité", min_value=0.0, step=1.0, format="%.2f"
-            ),
-            "Unité": st.column_config.SelectboxColumn(
-                "Unité", options=UNITES_DISPONIBLES
-            ),
-            "Prix unitaire": st.column_config.NumberColumn(
-                "Prix unitaire", min_value=0.0, step=100.0, format="%.2f"
-            ),
-        },
-        key="editeur_devis",
+    col_n, col_desig, col_ref, col_qte, col_unite, col_prix, col_total, col_suppr = st.columns(
+        [0.4, 2.2, 1.6, 1, 0.9, 1.3, 1.3, 0.5]
     )
+    col_n.markdown("**N°**")
+    col_desig.markdown("**Désignation**")
+    col_ref.markdown("**Réf. normative**")
+    col_qte.markdown("**Qté**")
+    col_unite.markdown("**Unité**")
+    col_prix.markdown("**Prix unit.**")
+    col_total.markdown("**Prix Total**")
+    col_suppr.markdown("**​**")  # espace réservé, pas de titre nécessaire
  
-    # On NE réécrit PLUS st.session_state.df_devis_source ici (c'était
-    # la source du conflit). Streamlit maintient déjà l'état à jour en
-    # interne sous la clé "editeur_devis" — df_edite, retourné par
-    # l'appel ci-dessus, reflète toujours la dernière saisie de
-    # l'utilisateur, sans qu'on ait besoin de le réinjecter nous-mêmes.
+    # ------------------------------------------------------------------
+    # UNE RANGÉE DE CHAMPS DE SAISIE PAR LIGNE DE DEVIS
+    # ------------------------------------------------------------------
+    # Chaque widget a une clé bâtie sur l'identifiant STABLE de la ligne
+    # (ligne["_id_ligne"]), jamais sur sa position dans la liste. C'est
+    # ce qui garantit qu'une ligne conserve son état correctement même
+    # après suppression d'une autre ligne au-dessus d'elle.
+    id_ligne_a_supprimer = None
  
-    # Calcul du Prix Total par ligne, affiché séparément en lecture
-    # seule (retiré du tableau éditable pour éliminer tout risque de
-    # conflit de state lié à cette colonne recalculée à chaque rerun).
-    df_edite = df_edite.copy()
-    df_edite["Prix Total"] = df_edite.apply(
-        lambda ligne: _valeur_numerique_sure(ligne.get("Quantité"))
-        * _valeur_numerique_sure(ligne.get("Prix unitaire")),
-        axis=1,
-    )
+    for numero, ligne in enumerate(st.session_state.devis_lignes, start=1):
+        id_ligne = ligne["_id_ligne"]
  
-    with st.expander("📋 Aperçu des prix totaux par ligne", expanded=True):
-        st.dataframe(
-            df_edite[["Désignation", "Quantité", "Prix unitaire", "Prix Total"]],
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Prix Total": st.column_config.NumberColumn("Prix Total", format="%.2f"),
-                "Prix unitaire": st.column_config.NumberColumn("Prix unitaire", format="%.2f"),
-                "Quantité": st.column_config.NumberColumn("Quantité", format="%.2f"),
-            },
+        col_n, col_desig, col_ref, col_qte, col_unite, col_prix, col_total, col_suppr = st.columns(
+            [0.4, 2.2, 1.6, 1, 0.9, 1.3, 1.3, 0.5]
         )
  
-    # On retire la colonne calculée avant de sauvegarder dans le session_state
-    # (elle sera recalculée à chaque rendu, pas besoin de la stocker).
-    df_a_sauvegarder = df_edite.drop(columns=["Prix Total"], errors="ignore")
-    st.session_state.devis_lignes = _dataframe_vers_lignes(df_a_sauvegarder)
+        col_n.markdown(f"<div style='padding-top: 0.6rem;'>{numero}</div>", unsafe_allow_html=True)
  
-    st.caption(
-        "💡 Utilisez le bouton **+** en bas du tableau pour ajouter une ligne, "
-        "ou la case à cocher à gauche d'une ligne pour la supprimer."
-    )
+        ligne["Désignation"] = col_desig.text_input(
+            "Désignation", value=ligne.get("Désignation", ""), key=f"desig_{id_ligne}",
+            label_visibility="collapsed", placeholder="Ex : Câble 3G2.5",
+        )
+        ligne["Référence normative"] = col_ref.text_input(
+            "Référence normative", value=ligne.get("Référence normative", ""), key=f"ref_{id_ligne}",
+            label_visibility="collapsed", placeholder="Ex : IEC 60364",
+        )
+        ligne["Quantité"] = col_qte.number_input(
+            "Quantité", value=_valeur_numerique_sure(ligne.get("Quantité"), 1.0),
+            min_value=0.0, step=1.0, format="%.2f", key=f"qte_{id_ligne}",
+            label_visibility="collapsed",
+        )
+        unite_actuelle = ligne.get("Unité", "u")
+        ligne["Unité"] = col_unite.selectbox(
+            "Unité", options=UNITES_DISPONIBLES,
+            index=UNITES_DISPONIBLES.index(unite_actuelle) if unite_actuelle in UNITES_DISPONIBLES else 0,
+            key=f"unite_{id_ligne}", label_visibility="collapsed",
+        )
+        ligne["Prix unitaire"] = col_prix.number_input(
+            "Prix unitaire", value=_valeur_numerique_sure(ligne.get("Prix unitaire")),
+            min_value=0.0, step=100.0, format="%.2f", key=f"prix_{id_ligne}",
+            label_visibility="collapsed",
+        )
+ 
+        # Prix Total : calcul en lecture seule, jamais un widget de saisie
+        # (donc aucun risque de conflit d'état ici, c'est du texte statique)
+        prix_total_ligne = _valeur_numerique_sure(ligne.get("Quantité")) * _valeur_numerique_sure(
+            ligne.get("Prix unitaire")
+        )
+        col_total.markdown(
+            f"<div style='padding-top: 0.6rem; font-weight: 600;'>{prix_total_ligne:,.2f}</div>",
+            unsafe_allow_html=True,
+        )
+ 
+        # Bouton de suppression — ne supprime pas immédiatement pendant
+        # la boucle (modifier une liste qu'on parcourt cause des bugs) ;
+        # on mémorise l'identifiant et on supprime après la boucle.
+        if col_suppr.button("🗑️", key=f"suppr_{id_ligne}", help="Supprimer cette ligne"):
+            id_ligne_a_supprimer = id_ligne
+ 
+    if id_ligne_a_supprimer is not None:
+        _supprimer_ligne(id_ligne_a_supprimer)
+        st.rerun()
+ 
+    # ------------------------------------------------------------------
+    # BOUTON D'AJOUT DE LIGNE
+    # ------------------------------------------------------------------
+    st.button("➕ Ajouter une ligne", on_click=_ajouter_ligne, use_container_width=False)
+ 
+    st.divider()
  
     # ------------------------------------------------------------------
     # ZONE DE SYNTHÈSE
     # ------------------------------------------------------------------
-    st.divider()
     st.markdown("### 📊 Synthèse")
  
     st.session_state.devis_taux_tva = st.number_input(
@@ -258,4 +274,3 @@ def afficher_bloc2():
         if st.button("Suivant ➔", use_container_width=True):
             st.session_state.bloc_actif = 3
             st.rerun()
- 
