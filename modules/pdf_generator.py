@@ -49,7 +49,7 @@ class DevisPDF(FPDF):
         self.set_font("Helvetica", "I", 7)
         self.set_text_color(140, 140, 140)  # gris discret, non intrusif
         texte_filigrane = (
-            f"Généré via le logiciel d'ingénierie {NOM_GROUPE} — {LIEN_BOUTIQUE}"
+            f"Genere via le logiciel d'ingenierie {NOM_GROUPE} - {LIEN_BOUTIQUE}"
         )
         self.cell(0, 10, texte_filigrane, align="C")
  
@@ -152,13 +152,13 @@ def generer_pdf_devis(
         pdf.set_font("Helvetica", "B", 11)
         pdf.set_text_color(*COULEUR_GRIS_ANTHRACITE)
  
-        date_str = infos["date"].strftime("%d/%m/%Y") if infos.get("date") else "—"
+        date_str = infos["date"].strftime("%d/%m/%Y") if infos.get("date") else "-"
  
         lignes_infos = [
-            ("Concepteur", f"{infos.get('prenom', '')} {infos.get('nom', '')}".strip() or "—"),
-            ("Client", infos.get("client") or "—"),
-            ("Secteur d'activité", infos.get("secteur") or "—"),
-            ("Pays", infos.get("pays") or "—"),
+            ("Concepteur", f"{infos.get('prenom', '')} {infos.get('nom', '')}".strip() or "-"),
+            ("Client", infos.get("client") or "-"),
+            ("Secteur d'activité", infos.get("secteur") or "-"),
+            ("Pays", infos.get("pays") or "-"),
             ("Date", date_str),
         ]
  
