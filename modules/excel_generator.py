@@ -38,7 +38,7 @@ CATALOGUE_COMPLET = [
     ("POWER-SUPPLY DESIGNER", "Dimensionnement des alimentations à découpage (Buck, Boost, Flyback)", "IEC 61204"),
     ("LINK-BUDGET MASTER", "Calcul complet du bilan de liaison hertzien", "Normes UIT-R"),
     ("FIBER-LOSS CALCULATOR", "Calcul du budget optique théorique (atténuation, pertes)", "IEC 60793 / TIA-568"),
-    ("ANTENNA-ALIGNER PRO", "Calcul des angles d'élévation, azimut et zone de Fresnel", "—"),
+    ("ANTENNA-ALIGNER PRO", "Calcul des angles d'élévation, azimut et zone de Fresnel", "-"),
 ]
  
  
@@ -59,7 +59,7 @@ def generer_excel_devis(
     """
     tampon_memoire = io.BytesIO()
  
-    date_str = infos["date"].strftime("%d/%m/%Y") if infos.get("date") else "—"
+    date_str = infos["date"].strftime("%d/%m/%Y") if infos.get("date") else "-"
  
     with pd.ExcelWriter(tampon_memoire, engine="openpyxl") as writer:
         # --------------------------------------------------------
@@ -91,7 +91,7 @@ def generer_excel_devis(
         feuille_devis["A1"] = "DEVIS"
         feuille_devis["A2"] = NOM_GROUPE
         feuille_devis["A4"] = f"Concepteur : {infos.get('prenom', '')} {infos.get('nom', '')}".strip()
-        feuille_devis["A5"] = f"Client : {infos.get('client', '—')}    |    Date : {date_str}    |    Secteur : {infos.get('secteur', '—')}"
+        feuille_devis["A5"] = f"Client : {infos.get('client', '-')}    |    Date : {date_str}    |    Secteur : {infos.get('secteur', '-')}"
  
         # Lignes de synthèse ajoutées juste après le tableau de données
         ligne_synthese_debut = 6 + len(df_devis) + 3  # +3 lignes d'espace après le tableau
