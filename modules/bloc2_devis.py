@@ -111,24 +111,32 @@ def afficher_bloc2():
     # ------------------------------------------------------------------
     # TABLEAU INTERACTIF (DataGrid)
     # ------------------------------------------------------------------
-    df_source = pd.DataFrame(st.session_state.devis_lignes)
- 
-    # On ajoute une colonne d'affichage "Prix Total" calculée à la volée,
-    # visible mais non éditable (comme demandé dans le cahier des charges).
+    # CORRECTIF CRITIQUE — cycle de vie du data_editor :
     #
-    # IMPORTANT : on utilise _valeur_numerique_sure() ligne par ligne
-    # plutôt que .astype(float) sur toute la colonne. .astype(float)
-    # échoue silencieusement (produit NaN, affiché "None" à l'écran)
-    # dès qu'une cellule est vide — typiquement une ligne fraîchement
-    # ajoutée via le bouton "+" du tableau, pas encore remplie.
-    df_source["Prix Total"] = df_source.apply(
-        lambda ligne: _valeur_numerique_sure(ligne.get("Quantité"))
-        * _valeur_numerique_sure(ligne.get("Prix unitaire")),
-        axis=1,
-    )
+    # PROBLÈME initial : reconstruire `df_source` depuis
+    # st.session_state.devis_lignes À CHAQUE rerun (ce que fait Streamlit
+    # à chaque frappe/clic) crée une course entre les anciennes données
+    # qu'on repasse en argument et l'état interne que le widget garde
+    # sous sa `key`. Résultat observé : une saisie disparaît dès qu'on
+    # change de ligne ou de bloc, car l'ancien df_source écrase la
+    # frappe en cours au rerun suivant.
+    #
+    # CORRECTIF : on ne construit `df_source` QU'UNE SEULE FOIS par
+    # session, via st.session_state.setdefault. Une fois le widget
+    # créé avec sa clé "editeur_devis", c'est LUI qui devient la seule
+    # source de vérité pour les reruns suivants — on ne lui repasse
+    # plus jamais un DataFrame reconstruit depuis ailleurs.
+    if "df_devis_source" not in st.session_state:
+        df_init = pd.DataFrame(st.session_state.devis_lignes)
+        df_init["Prix Total"] = df_init.apply(
+            lambda ligne: _valeur_numerique_sure(ligne.get("Quantité"))
+            * _valeur_numerique_sure(ligne.get("Prix unitaire")),
+            axis=1,
+        )
+        st.session_state.df_devis_source = df_init
  
     df_edite = st.data_editor(
-        df_source,
+        st.session_state.df_devis_source,
         num_rows="dynamic",  # autorise l'ajout/suppression de lignes directement dans le tableau
         use_container_width=True,
         hide_index=True,
@@ -154,6 +162,18 @@ def afficher_bloc2():
         },
         key="editeur_devis",
     )
+ 
+    # On recalcule "Prix Total" à partir de ce que l'utilisateur vient
+    # RÉELLEMENT de saisir (df_edite, retourné par le widget lui-même),
+    # pas depuis une source reconstruite — c'est ce qui garantit que
+    # les totaux reflètent toujours la dernière frappe, même la plus
+    # récente, sans décalage d'un rerun.
+    df_edite["Prix Total"] = df_edite.apply(
+        lambda ligne: _valeur_numerique_sure(ligne.get("Quantité"))
+        * _valeur_numerique_sure(ligne.get("Prix unitaire")),
+        axis=1,
+    )
+    st.session_state.df_devis_source = df_edite
  
     # On retire la colonne calculée avant de sauvegarder dans le session_state
     # (elle sera recalculée à chaque rendu, pas besoin de la stocker).
